@@ -1,0 +1,83 @@
+{
+  "name": "omp-eagle-view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Plain-language progress narration in an OMP above-editor widget",
+  "author": "Mike Wassmer",
+  "license": "MIT",
+  "homepage": "https://github.com/mwmdev/omp-eagle-view#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mwmdev/omp-eagle-view.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mwmdev/omp-eagle-view/issues"
+  },
+  "keywords": [
+    "oh-my-pi",
+    "omp",
+    "omp-extension",
+    "coding-agent",
+    "developer-tools"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "omp": {
+    "extensions": ["./src/index.ts"],
+    "settings": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Start Eagle View automatically",
+        "default": true
+      },
+      "intervalMinutes": {
+        "type": "number",
+        "description": "Minutes between narration checks",
+        "default": 2,
+        "min": 0.25,
+        "max": 1440,
+        "step": 0.25
+      },
+      "initialEventCount": {
+        "type": "number",
+        "description": "Whole number of events required before the first automatic narration",
+        "default": 3,
+        "min": 1,
+        "max": 100,
+        "step": 1
+      },
+      "icon": {
+        "type": "string",
+        "description": "Symbol shown before the narration",
+        "default": "🦅"
+      },
+      "prompt": {
+        "type": "string",
+        "description": "Non-authoritative narration style preference",
+        "default": "Write like a wise old man quietly observing the work: patient, measured, warm, and plain-spoken. Explain what is happening and why it matters in everyday words. Translate technical actions into their practical purpose or outcome. For example, say \"making sure the change holds firm\" rather than \"running integration tests.\" Offer gentle perspective when it fits, but avoid archaic language, riddles, sermons, grand pronouncements, clichés, and calling the reader \"young one.\" Never sacrifice accuracy for character or invent progress."
+      },
+      "model": {
+        "type": "string",
+        "description": "Optional narration model from the active provider"
+      }
+    }
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-ai": ">=18.2.5",
+    "@oh-my-pi/pi-coding-agent": ">=18.2.5",
+    "@oh-my-pi/pi-tui": ">=18.2.5"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-ai": "18.2.5",
+    "@oh-my-pi/pi-coding-agent": "18.2.5",
+    "@oh-my-pi/pi-tui": "18.2.5",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  }
+}
