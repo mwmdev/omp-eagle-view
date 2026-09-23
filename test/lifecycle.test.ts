@@ -348,86 +348,79 @@ test("re-enabling Eagle View rearms idle clearing and narration", async () => {
   expect(harness.timeouts.filter((timer) => timer.ms === 1_000)).toHaveLength(initialUpdateCount + 1);
 });
 
-test("inspection opens from stored state, updates live, and restores the latest eligible widget", async () => {
+test("inspection records accepted messages, groups consecutive repeats, and retains history locally", async () => {
   const widgetCalls: Array<{ content: unknown; placement?: string }> = [];
+  const narrations = [
+    "Same explanation",
+    "Same explanation",
+    "Different explanation",
+    "Same explanation",
+  ];
   let narrationCalls = 0;
-  const narrate = (async () => {
-    narrationCalls += 1;
-    return {
-      narration: `Current explanation ${narrationCalls}`,
-      digest: {
-        goal: `Accepted goal ${narrationCalls}`,
-        currentFocus: "Reviewing the active task",
-        completedMilestones: [`Stored milestone ${narrationCalls}`],
-        decisions: [`Stored decision ${narrationCalls}`],
-        blockers: [],
-      },
-    };
-  }) as typeof generateNarration;
+  const narrate = (async () => ({ narration: narrations[narrationCalls++] ?? "Unexpected explanation" })) as typeof generateNarration;
   const handlers = createExtensionHarness([], narrate);
   const harness = createContext(widgetCalls);
   await handlers.get("session_start")?.({ type: "session_start" }, harness.context);
   if (harness.intervalCount() === 0) await handlers.get("command:eagle-view")?.("toggle", harness.context);
   handlers.get("input")?.({ type: "input", source: "user", text: "Inspect this work" }, harness.context);
   await handlers.get("command:eagle-view")?.("refresh", harness.context);
-  expect(narrationCalls).toBe(1);
-  expect(renderCapturedWidget(widgetCalls.at(-1) ?? { content: undefined })).toContain("Current explanation 1");
+  expect(renderCapturedWidget(widgetCalls.at(-1) ?? { content: undefined })).toContain("Same explanation");
 
-  handlers.get("tool_call")?.(
-    { toolName: "todo", toolCallId: "init", input: { op: "init", phase: "Work", items: ["First task", "Second task"] } },
-    harness.context,
-  );
-  handlers.get("tool_execution_end")?.({ toolName: "todo", toolCallId: "init", isError: false }, harness.context);
-  const idleCount = harness.timeouts.filter((timer) => timer.ms === 60_000).length;
   const inspection = handlers.get("command:eagle-view")?.("inspect", harness.context);
   expect(harness.customCalls).toHaveLength(1);
   expect(widgetCalls.at(-1)).toEqual({ content: undefined, placement: "aboveEditor" });
   expect(narrationCalls).toBe(1);
-  expect(harness.timeouts.filter((timer) => timer.ms === 60_000)).toHaveLength(idleCount);
   await handlers.get("command:eagle-view")?.("inspect", harness.context);
   expect(harness.customCalls).toHaveLength(1);
 
   const overlay = harness.customCalls[0];
   expect(overlay).toBeDefined();
   const initialInspection = Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "");
-  expect(initialInspection).toContain("0/2 tasks");
-  expect(initialInspection).not.toContain("First task");
-  handlers.get("tool_call")?.(
-    { toolName: "todo", toolCallId: "done", input: { op: "done", task: "First task" } },
-    harness.context,
-  );
-  handlers.get("tool_execution_end")?.({ toolName: "todo", toolCallId: "done", isError: false }, harness.context);
-  const afterDone = Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "");
-  expect(afterDone).toContain("1/2 tasks");
-  expect(afterDone).not.toContain("First task");
-
-  handlers.get("tool_call")?.(
-    { toolName: "todo", toolCallId: "failed", input: { op: "block", task: "Second task", reason: "Should not appear" } },
-    harness.context,
-  );
-  handlers.get("tool_execution_end")?.({ toolName: "todo", toolCallId: "failed", isError: true }, harness.context);
-  expect(Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "")).not.toContain("Should not appear");
-  expect(narrationCalls).toBe(1);
+  expect(initialInspection).toContain("Same explanation");
+  expect(initialInspection).not.toContain("GOAL");
+  expect(initialInspection).not.toContain("tasks");
 
   await handlers.get("command:eagle-view")?.("refresh", harness.context);
-  expect(narrationCalls).toBe(2);
-  expect(Bun.stripANSI(overlay?.component.render(80)[0] ?? "")).toContain("Updated just now");
-  const updatedInspection = Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "");
-  expect(updatedInspection).toContain("Stored milestone 2");
-  expect(updatedInspection).toContain("Stored milestone 1");
-  expect(updatedInspection).toContain("Stored decision 2");
-  expect(updatedInspection).toContain("Stored decision 1");
+  const grouped = Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "");
+  expect(grouped).toContain("2 updates");
+  expect(grouped.split("Same explanation")).toHaveLength(2);
+
+  await handlers.get("command:eagle-view")?.("refresh", harness.context);
+  await handlers.get("command:eagle-view")?.("refresh", harness.context);
+  const aThenBThenA = Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "");
+  expect(aThenBThenA.split("Same explanation")).toHaveLength(3);
+  expect(aThenBThenA).toContain("Different explanation");
   expect(widgetCalls.at(-1)).toEqual({ content: undefined, placement: "aboveEditor" });
+
   overlay?.component.handleInput?.("q");
   await inspection;
-  expect(renderCapturedWidget(widgetCalls.at(-1) ?? { content: undefined })).toContain("Current explanation 2");
+  expect(renderCapturedWidget(widgetCalls.at(-1) ?? { content: undefined })).toContain("Same explanation");
+
+  const idle = harness.timeouts.filter((timer) => timer.ms === 60_000 && !timer.cleared).at(-1);
+  idle?.callback();
+  expect(widgetCalls.at(-1)).toEqual({ content: undefined, placement: "aboveEditor" });
+  const afterIdle = handlers.get("command:eagle-view")?.("inspect", harness.context);
+  expect(Bun.stripANSI(harness.customCalls.at(-1)?.component.render(80).join("\n") ?? "")).toContain(
+    "Different explanation",
+  );
+  harness.customCalls.at(-1)?.component.handleInput?.("q");
+  await afterIdle;
+
+  await handlers.get("command:eagle-view")?.("toggle", harness.context);
+  await handlers.get("command:eagle-view")?.("toggle", harness.context);
+  const afterToggle = handlers.get("command:eagle-view")?.("inspect", harness.context);
+  expect(Bun.stripANSI(harness.customCalls.at(-1)?.component.render(80).join("\n") ?? "")).toContain(
+    "Different explanation",
+  );
+  harness.customCalls.at(-1)?.component.handleInput?.("q");
+  await afterToggle;
 });
 
-test("inspection clears the preparing state when the initial briefing fails", async () => {
+test("failed narration leaves an open inspection history unchanged", async () => {
   const warnings: string[] = [];
   let rejectNarration: ((reason?: unknown) => void) | undefined;
   const narrate = (async () =>
-    new Promise<Awaited<ReturnType<typeof generateNarration>>>((_resolve, reject) => {
+    new Promise<NarrationResult>((_resolve, reject) => {
       rejectNarration = reject;
     })) as typeof generateNarration;
   const handlers = createExtensionHarness(warnings, narrate);
@@ -439,15 +432,15 @@ test("inspection clears the preparing state when the initial briefing fails", as
   const refresh = handlers.get("command:eagle-view")?.("refresh", harness.context);
   const inspection = handlers.get("command:eagle-view")?.("inspect", harness.context);
   const overlay = harness.customCalls[0];
-  expect(Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "")).toContain("Preparing briefing…");
+  expect(Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "")).toContain("No updates yet.");
   const requestsBeforeFailure = harness.renderRequests();
 
   rejectNarration?.(new Error("generation failed"));
   await refresh;
   expect(harness.renderRequests()).toBeGreaterThan(requestsBeforeFailure);
   const failed = Bun.stripANSI(overlay?.component.render(80).join("\n") ?? "");
-  expect(failed).not.toContain("Preparing briefing…");
-  expect(failed).not.toContain("NOW");
+  expect(failed).toContain("No updates yet.");
+  expect(failed).not.toContain("generation failed");
   expect(warnings).toHaveLength(1);
 
   overlay?.component.handleInput?.("q");
@@ -478,22 +471,52 @@ test("idle expiry and lifecycle transitions never resurrect a hidden widget", as
   expect(widgetCalls.at(-1)).toEqual({ content: undefined, placement: "aboveEditor" });
 });
 
-test("session replacement isolates old inspection cleanup from the new owner", async () => {
+test("session replacement clears the in-memory message history for the new owner", async () => {
   const handlers = createExtensionHarness([], (async () => ({ narration: "Session narration" })) as typeof generateNarration);
   const oldHarness = createContext([], "session-old");
   await handlers.get("session_start")?.({ type: "session_start" }, oldHarness.context);
+  if (oldHarness.intervalCount() === 0) await handlers.get("command:eagle-view")?.("toggle", oldHarness.context);
+  handlers.get("input")?.({ type: "input", source: "user", text: "Old session work" }, oldHarness.context);
+  await handlers.get("command:eagle-view")?.("refresh", oldHarness.context);
   const oldInspection = handlers.get("command:eagle-view")?.("inspect", oldHarness.context);
-  expect(oldHarness.customCalls).toHaveLength(1);
+  expect(Bun.stripANSI(oldHarness.customCalls[0]?.component.render(80).join("\n") ?? "")).toContain("Session narration");
 
   const newHarness = createContext([], "session-new");
   await handlers.get("session_switch")?.({ type: "session_switch" }, newHarness.context);
   await oldInspection;
   const newInspection = handlers.get("command:eagle-view")?.("inspect", newHarness.context);
   expect(newHarness.customCalls).toHaveLength(1);
+  expect(Bun.stripANSI(newHarness.customCalls[0]?.component.render(80).join("\n") ?? "")).toContain("No updates yet.");
   await handlers.get("command:eagle-view")?.("inspect", newHarness.context);
   expect(newHarness.customCalls).toHaveLength(1);
   newHarness.customCalls[0]?.component.handleInput?.("q");
   await newInspection;
+});
+
+test("late narration from a replaced session cannot enter the new history", async () => {
+  let resolveNarration: ((result: NarrationResult) => void) | undefined;
+  const narrate = (async () =>
+    new Promise<NarrationResult>((resolve) => {
+      resolveNarration = resolve;
+    })) as typeof generateNarration;
+  const handlers = createExtensionHarness([], narrate);
+  const oldHarness = createContext([], "session-old");
+  await handlers.get("session_start")?.({ type: "session_start" }, oldHarness.context);
+  if (oldHarness.intervalCount() === 0) await handlers.get("command:eagle-view")?.("toggle", oldHarness.context);
+  handlers.get("input")?.({ type: "input", source: "user", text: "Old session work" }, oldHarness.context);
+  const staleRefresh = handlers.get("command:eagle-view")?.("refresh", oldHarness.context);
+
+  const newHarness = createContext([], "session-new");
+  await handlers.get("session_switch")?.({ type: "session_switch" }, newHarness.context);
+  resolveNarration?.({ narration: "Late old-session narration" });
+  await staleRefresh;
+
+  const inspection = handlers.get("command:eagle-view")?.("inspect", newHarness.context);
+  const rendered = Bun.stripANSI(newHarness.customCalls[0]?.component.render(80).join("\n") ?? "");
+  expect(rendered).toContain("No updates yet.");
+  expect(rendered).not.toContain("Late old-session narration");
+  newHarness.customCalls[0]?.component.handleInput?.("q");
+  await inspection;
 });
 
 test("unsupported inspection warns without hiding the widget or narrating", async () => {

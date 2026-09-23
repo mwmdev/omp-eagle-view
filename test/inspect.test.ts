@@ -3,8 +3,7 @@ import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { type Component, initTheme, theme } from "@oh-my-pi/pi-tui";
 
 import {
-  retainAcceptedEntries,
-  showProgressionOverlay,
+  showMessageHistoryOverlay,
   type EagleViewInspectionSnapshot,
   type EagleViewInspectionSource,
 } from "../src/inspect";
@@ -47,45 +46,27 @@ interface CapturedComponent extends Component {
   dispose(): void;
 }
 
+function at(day: number, hour: number, minute: number): number {
+  return new Date(2026, 8, day, hour, minute).getTime();
+}
+
 function mixedSnapshot(): EagleViewInspectionSnapshot {
   return {
     icon: "🦅",
-    updatedAt: Date.now(),
-    briefingPending: false,
-    milestoneHistory: ["Fifth milestone", "Fourth milestone", "Third milestone", "Second milestone", "First milestone"],
-    decisionHistory: ["Fourth decision", "Third decision", "Second decision", "First decision"],
-    progression: {
-      ompGoal: "Make configuration discovery reliable across environments.",
-      digest: {
-        goal: "Inferred goal should yield to the native goal.",
-        currentFocus: "Comparing saved evidence with the expected behavior to locate the remaining failure.",
-        completedMilestones: [],
-        decisions: [],
-        blockers: ["Waiting for approval", "Offline validation is unavailable"],
+    messages: [
+      {
+        id: 6,
+        text: "Newest update explains the current work in plain language.",
+        firstAt: at(23, 12, 20),
+        latestAt: at(23, 12, 30),
+        count: 3,
       },
-      tasks: [
-        { phase: "Contracts", label: "Define schemas", status: "completed" },
-        { phase: "Contracts", label: "Validate contracts", status: "completed" },
-        { phase: "Acceptance", label: "Prepare evidence", status: "completed" },
-        {
-          phase: "Acceptance",
-          label: "Compare evaluator details, stored evidence, and scenario validation",
-          status: "in_progress",
-        },
-        { phase: "Acceptance", label: "Diagnose the contextual follow-up failure", status: "pending" },
-        { phase: "Acceptance", label: "Verify the repaired evidence path", status: "pending" },
-        { phase: "Acceptance", label: "Review edge cases", status: "pending" },
-        { phase: "Acceptance", label: "Await fixture approval", status: "blocked", blocker: "Waiting for approval" },
-        { phase: "Diagnostics", label: "Check offline loading", status: "pending" },
-        { phase: "Diagnostics", label: "Legacy probe", status: "abandoned" },
-        {
-          phase: "Diagnostics",
-          label: "Obtain reference bundle",
-          status: "blocked",
-          blocker: "Reference bundle missing",
-        },
-      ],
-    },
+      { id: 5, text: "Fifth update", firstAt: at(23, 12, 10), latestAt: at(23, 12, 10), count: 1 },
+      { id: 4, text: "Fourth update", firstAt: at(23, 12, 0), latestAt: at(23, 12, 0), count: 1 },
+      { id: 3, text: "Third update", firstAt: at(23, 11, 50), latestAt: at(23, 11, 50), count: 1 },
+      { id: 2, text: "Second update", firstAt: at(23, 11, 40), latestAt: at(23, 11, 40), count: 1 },
+      { id: 1, text: "First update", firstAt: at(22, 17, 5), latestAt: at(22, 17, 5), count: 1 },
+    ],
   };
 }
 
@@ -114,7 +95,7 @@ function openPanel(source: MutableSource, rows = 40) {
       timer.cleared = true;
     },
   } as unknown as ExtensionContext;
-  const completion = showProgressionOverlay(context, source);
+  const completion = showMessageHistoryOverlay(context, source);
   return {
     component: () => {
       if (!component) throw new Error("panel factory was not captured");
@@ -134,13 +115,7 @@ function plain(lines: readonly string[]): string[] {
   return lines.map((line) => Bun.stripANSI(line));
 }
 
-test("retains accepted history newest-first across later omissions", () => {
-  expect(retainAcceptedEntries(["B", "A"], ["A", "C", "B"])).toEqual(["C", "B", "A"]);
-  expect(retainAcceptedEntries(["C", "B", "A"], ["B", "C"])).toEqual(["C", "B", "A"]);
-  expect(retainAcceptedEntries(["C", "B", "A"], ["D", "C", "D"])).toEqual(["D", "C", "B", "A"]);
-});
-
-test("renders the session story without duplicating the visible plan", async () => {
+test("renders timestamped message history without structured progression sections", async () => {
   const source = new MutableSource(mixedSnapshot());
   const panel = openPanel(source, 100);
   const rendered = plain(panel.component().render(100));
@@ -151,27 +126,16 @@ test("renders the session story without duplicating the visible plan", async () 
   expect(constrained.length).toBeLessThanOrEqual(34);
   expect(constrained.every((line) => Bun.stringWidth(line) <= 100)).toBe(true);
   expect(constrained.at(-2)).toContain("↑/↓ scroll · Esc close");
-  expect(text.indexOf("GOAL")).toBeLessThan(text.indexOf("NOW"));
-  expect(text.indexOf("NOW")).toBeLessThan(text.indexOf("BLOCKERS"));
-  expect(text.indexOf("BLOCKERS")).toBeLessThan(text.indexOf("MILESTONES"));
-  expect(text.indexOf("MILESTONES")).toBeLessThan(text.indexOf("DECISIONS"));
-  expect(text).toContain("3/11 tasks · 1 dropped");
-  expect(text).toContain("Make configuration discovery reliable across environments.");
-  expect(text).not.toContain("Inferred goal should yield to the native goal.");
-  expect(text).not.toContain("PLAN");
-  expect(text).not.toContain("Contracts");
-  expect(text).not.toContain("Compare evaluator details, stored evidence, and scenario validation");
-  expect(text).not.toContain("Diagnose the contextual follow-up failure");
-  expect(text).toContain("Acceptance: Await fixture approval");
-  expect(text).toContain("Waiting for approval");
-  expect(text).toContain("Diagnostics: Obtain reference bundle");
-  expect(text).toContain("Offline validation is unavailable");
-  expect(text).toContain("Fifth milestone");
-  expect(text).toContain("First milestone");
-  expect(text).toContain("Fourth decision");
-  expect(text).toContain("First decision");
-  expect(text).not.toContain("earlier milestones");
-  expect(text).not.toContain("earlier decisions");
+  expect(text).toContain("12:20–12:30 · 3 updates");
+  expect(text).toContain("Newest update explains the current work in plain language.");
+  expect(text).toContain("2026-09-22 17:05");
+  expect(text).toContain("First update");
+  expect(text).not.toContain("GOAL");
+  expect(text).not.toContain("NOW");
+  expect(text).not.toContain("BLOCKERS");
+  expect(text).not.toContain("MILESTONES");
+  expect(text).not.toContain("DECISIONS");
+  expect(text).not.toContain("tasks");
 
   panel.component().handleInput("q");
   await panel.completion;
@@ -179,40 +143,18 @@ test("renders the session story without duplicating the visible plan", async () 
   expect(panel.timers[0]?.cleared).toBe(true);
 });
 
-test("opens with deterministic data while preparing the first briefing", async () => {
-  const source = new MutableSource({
-    icon: "",
-    briefingPending: true,
-    milestoneHistory: [],
-    decisionHistory: [],
-    progression: {
-      ompGoal: "Raw fallback",
-      digest: { completedMilestones: [], decisions: [], blockers: [] },
-      tasks: [
-        { phase: "Finished", label: "Done", status: "completed" },
-        { phase: "Dropped", label: "Not done", status: "abandoned" },
-      ],
-    },
-  });
+test("shows a deterministic empty state before the first accepted message", async () => {
+  const source = new MutableSource({ icon: "", messages: [] });
   const panel = openPanel(source, 20);
   const text = plain(panel.component().render(80)).join("\n");
-  expect(text).toContain("GOAL");
-  expect(text).toContain("Raw fallback");
-  expect(text).toContain("NOW");
-  expect(text).toContain("Preparing briefing…");
-  expect(text).toContain("1/2 tasks · 1 dropped");
-  expect(text).not.toContain("PLAN");
-  expect(text).not.toContain("Done");
-  source.publish({ ...source.snapshot, briefingPending: false });
-  const inactive = plain(panel.component().render(80)).join("\n");
-  expect(inactive).not.toContain("NOW");
-  expect(inactive).not.toContain("Preparing briefing…");
-  expect(text).not.toContain("Not done");
+  expect(text).toContain("No updates yet.");
+  expect(text).not.toContain("Updated");
+  expect(text).not.toContain("Preparing");
   panel.component().handleInput("q");
   await panel.completion;
 });
 
-test("caps height, fits narrow rows, scrolls, and preserves logical position on updates", async () => {
+test("caps height, fits narrow rows, follows newest updates, and preserves older reading position", async () => {
   const source = new MutableSource(mixedSnapshot());
   const panel = openPanel(source, 16);
   const component = panel.component();
@@ -221,40 +163,51 @@ test("caps height, fits narrow rows, scrolls, and preserves logical position on 
   expect(initial.every((line) => Bun.stringWidth(line) <= 60)).toBe(true);
   expect(initial.some((line) => line.includes("█") || line.includes("│"))).toBe(true);
 
+  const followed = mixedSnapshot();
+  followed.messages = [
+    { id: 7, text: "A newly accepted update", firstAt: at(23, 12, 40), latestAt: at(23, 12, 40), count: 1 },
+    ...followed.messages,
+  ];
+  source.publish(followed);
+  expect(plain(component.render(60)).join("\n")).toContain("A newly accepted update");
+
   let historyAnchor = plain(component.render(60));
-  for (let index = 0; index < 80 && !historyAnchor[1]?.includes("Third milestone"); index += 1) {
+  for (let index = 0; index < 80 && !historyAnchor.some((line) => line.includes("Third update")); index += 1) {
     component.handleInput("\u001b[B");
     historyAnchor = plain(component.render(60));
   }
-  expect(historyAnchor[1]).toContain("Third milestone");
+  const anchorIndex = historyAnchor.findIndex((line) => line.includes("Third update"));
+  expect(anchorIndex).toBeGreaterThanOrEqual(0);
 
-  const changed = mixedSnapshot();
-  changed.progression.ompGoal = `${changed.progression.ompGoal} This added sentence changes wrapping above the current viewport.`;
-  source.publish(changed);
-  const updated = plain(component.render(60));
-  expect(updated[1]).toContain("Third milestone");
+  const inserted = {
+    ...followed,
+    messages: [
+      { id: 8, text: "Another new update", firstAt: at(23, 12, 50), latestAt: at(23, 12, 50), count: 1 },
+      ...followed.messages,
+    ],
+  };
+  source.publish(inserted);
+  expect(plain(component.render(60))[anchorIndex]).toContain("Third update");
 
-  source.publish({
-    ...changed,
-    milestoneHistory: changed.milestoneHistory.filter((entry) => entry !== "Third milestone"),
-  });
-  const removedAnchor = plain(component.render(60));
-  expect(removedAnchor[1]).not.toContain("Third milestone");
-  expect(removedAnchor[1]).not.toContain("GOAL");
-  expect(removedAnchor.join("\n")).toContain("Fourth milestone");
+  const grouped = {
+    ...inserted,
+    messages: inserted.messages.map((message, index) =>
+      index === 0 ? { ...message, latestAt: at(23, 12, 55), count: 2 } : message,
+    ),
+  };
+  source.publish(grouped);
+  expect(plain(component.render(60))[anchorIndex]).toContain("Third update");
 
   component.invalidate?.();
   const resized = plain(component.render(20));
   expect(resized.length).toBeLessThanOrEqual(13);
   expect(resized.every((line) => Bun.stringWidth(line) <= 20)).toBe(true);
-  expect(resized[1]).toContain("Fourth");
-  expect(resized[2]).toContain("milestone");
+  expect(resized.join("\n")).toContain("Third update");
 
   component.handleInput("\u001b[H");
-  expect(plain(component.render(20)).join("\n")).toContain("GOAL");
+  expect(plain(component.render(20)).join("\n")).toContain("Another new");
   panel.timers[0]?.callback();
-  const afterAgeTick = plain(component.render(20));
-  expect(afterAgeTick.join("\n")).toContain("GOAL");
+  expect(plain(component.render(20)).join("\n")).toContain("Another new");
 
   component.handleInput("q");
   await panel.completion;
@@ -262,11 +215,16 @@ test("caps height, fits narrow rows, scrolls, and preserves logical position on 
 
 test("renders age boundaries and compact height safely", async () => {
   const originalNow = Date.now;
-  let now = 10 * 86_400_000;
+  let now = at(23, 12, 30);
   Date.now = () => now;
   try {
     const source = new MutableSource(mixedSnapshot());
-    source.snapshot.updatedAt = now;
+    source.snapshot = {
+      ...source.snapshot,
+      messages: source.snapshot.messages.map((message, index) =>
+        index === 0 ? { ...message, firstAt: now, latestAt: now, count: 1 } : message,
+      ),
+    };
     const panel = openPanel(source, 6);
     expect(plain(panel.component().render(100))[0]).toContain("Updated just now");
     now += 61_000;
@@ -289,10 +247,9 @@ test("renders age boundaries and compact height safely", async () => {
   }
 });
 
-test("cleans partial setup and omits age before a valid digest", async () => {
+test("cleans partial setup and omits age for empty history", async () => {
   let unsubscriptions = 0;
-  const snapshot = mixedSnapshot();
-  snapshot.updatedAt = undefined;
+  const snapshot: EagleViewInspectionSnapshot = { icon: "🦅", messages: [] };
   const source: EagleViewInspectionSource = {
     getSnapshot: () => snapshot,
     subscribe: () => {
@@ -315,7 +272,7 @@ test("cleans partial setup and omits age before a valid digest", async () => {
       unsubscriptions += 1;
     },
   } as unknown as ExtensionContext;
-  await expect(showProgressionOverlay(context, source)).rejects.toThrow("subscription failed");
+  await expect(showMessageHistoryOverlay(context, source)).rejects.toThrow("subscription failed");
   expect(rendered).toBe("");
   expect(unsubscriptions).toBe(0);
 

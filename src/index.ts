@@ -4,9 +4,9 @@ import { ActivityBuffer, assistantText, describeToolEnd, describeToolStart } fro
 import { DEFAULT_CONFIG, loadEagleViewConfig, type EagleViewConfig } from "./config";
 import { generateNarration } from "./narration";
 import {
-  retainAcceptedEntries,
-  showProgressionOverlay,
+  showMessageHistoryOverlay,
   type EagleViewInspectionSource,
+  type EagleViewMessage,
 } from "./inspect";
 import { ProgressionState } from "./progression";
 import { clearEagleViewWidget, showEagleViewWidget } from "./widget";
@@ -35,9 +35,8 @@ interface RuntimeState {
   disposed: boolean;
   sessionGeneration: number;
   sessionId?: string;
-  digestUpdatedAt?: number;
-  milestoneHistory: string[];
-  decisionHistory: string[];
+  messageHistory: EagleViewMessage[];
+  nextMessageId: number;
   inspection?: { controller: AbortController; onChange?: () => void };
 }
 
@@ -51,8 +50,8 @@ export default function eagleViewExtension(
     progression: new ProgressionState(),
     enabled: DEFAULT_CONFIG.enabled,
     attemptedVersion: 0,
-    milestoneHistory: [],
-    decisionHistory: [],
+    messageHistory: [],
+    nextMessageId: 0,
     idle: true,
     refreshQueued: false,
     refreshFailureNotificationQueued: false,
@@ -119,19 +118,25 @@ export default function eagleViewExtension(
         ) {
           return;
         }
-        if (result.digest) {
-          state.progression.applyDigest(result.digest);
-          state.milestoneHistory = retainAcceptedEntries(
-            state.milestoneHistory,
-            result.digest.completedMilestones,
-          );
-          state.decisionHistory = retainAcceptedEntries(state.decisionHistory, result.digest.decisions);
-          state.digestUpdatedAt = Date.now();
+        const acceptedAt = Date.now();
+        const latestMessage = state.messageHistory[0];
+        if (latestMessage?.text === result.narration) {
+          latestMessage.latestAt = acceptedAt;
+          latestMessage.count += 1;
+        } else {
+          state.messageHistory.unshift({
+            id: ++state.nextMessageId,
+            text: result.narration,
+            firstAt: acceptedAt,
+            latestAt: acceptedAt,
+            count: 1,
+          });
         }
+        if (result.digest) state.progression.applyDigest(result.digest);
         state.narration = result.narration;
         if (!state.inspection) showEagleViewWidget(ctx, result.narration, state.config.icon);
         armIdleWidgetClear();
-        if (result.digest) state.inspection?.onChange?.();
+        state.inspection?.onChange?.();
       } catch (error) {
         if (!controller.signal.aborted) {
           const message = error instanceof Error ? error.message : String(error);
@@ -236,9 +241,8 @@ export default function eagleViewExtension(
     state.progression.reset();
     state.attemptedVersion = 0;
     state.narration = undefined;
-    state.digestUpdatedAt = undefined;
-    state.milestoneHistory = [];
-    state.decisionHistory = [];
+    state.messageHistory = [];
+    state.nextMessageId = 0;
     state.idle = true;
     state.refreshQueued = false;
     state.refreshFailureNotificationQueued = false;
@@ -334,7 +338,7 @@ export default function eagleViewExtension(
   });
 
   pi.registerCommand("eagle-view", {
-    description: "Toggle, refresh, or inspect Eagle View progression",
+    description: "Toggle, refresh, or inspect Eagle View updates",
     getArgumentCompletions: (prefix) =>
       ["toggle", "refresh", "inspect"]
         .filter((value) => value.startsWith(prefix.trim().toLowerCase()))
@@ -400,12 +404,8 @@ export default function eagleViewExtension(
         clearEagleViewWidget(ctx);
         const source: EagleViewInspectionSource = {
           getSnapshot: () => ({
-            progression: state.progression.snapshot(),
             icon: state.config.icon,
-            updatedAt: state.digestUpdatedAt,
-            briefingPending: Boolean(state.generation || state.initialUpdate),
-            milestoneHistory: state.milestoneHistory,
-            decisionHistory: state.decisionHistory,
+            messages: state.messageHistory,
           }),
           subscribe: (onChange) => {
             if (state.inspection === owner) owner.onChange = onChange;
@@ -415,7 +415,7 @@ export default function eagleViewExtension(
           },
         };
         try {
-          await showProgressionOverlay(ctx, source, owner.controller.signal);
+          await showMessageHistoryOverlay(ctx, source, owner.controller.signal);
         } catch (error) {
           if (!owner.controller.signal.aborted) {
             warn("eagle-view: inspection failed", {

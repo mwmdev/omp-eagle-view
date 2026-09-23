@@ -11,19 +11,21 @@ import {
   wrapTextWithAnsi,
 } from "@oh-my-pi/pi-tui";
 
-import type { EagleViewProgressionSnapshot, TrackedTask } from "./progression";
-
 const FOOTER_HINT = "↑/↓ scroll · Esc close";
 const PANEL_CHROME_ROWS = 4;
 const FRESHNESS_INTERVAL_MS = 30_000;
 
+export interface EagleViewMessage {
+  id: number;
+  text: string;
+  firstAt: number;
+  latestAt: number;
+  count: number;
+}
+
 export interface EagleViewInspectionSnapshot {
-  progression: EagleViewProgressionSnapshot;
   icon: string;
-  updatedAt?: number;
-  briefingPending: boolean;
-  milestoneHistory: readonly string[];
-  decisionHistory: readonly string[];
+  messages: readonly EagleViewMessage[];
 }
 
 export interface EagleViewInspectionSource {
@@ -42,92 +44,62 @@ interface WrappedLine {
   text: string;
 }
 
-interface PresentedBlocker {
-  id: string;
-  phase?: string;
-  label?: string;
-  detail?: string;
-  comparison: string;
+function sameLocalDay(left: number, right: number): boolean {
+  const a = new Date(left);
+  const b = new Date(right);
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
-export function retainAcceptedEntries(previous: readonly string[], current: readonly string[]): string[] {
-  const retained = new Set(previous);
-  const newlyAccepted: string[] = [];
-  for (const entry of current) {
-    if (retained.has(entry)) continue;
-    retained.add(entry);
-    newlyAccepted.push(entry);
-  }
-  return [...newlyAccepted, ...previous];
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
-function taskKey(task: Pick<TrackedTask, "phase" | "label">): string {
-  return `${task.phase}\u0000${task.label}`;
+function formatLocalMoment(timestamp: number, includeDate: boolean): string {
+  const date = new Date(timestamp);
+  const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  if (!includeDate) return time;
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${time}`;
 }
 
-function presentationBlockers(snapshot: EagleViewInspectionSnapshot): PresentedBlocker[] {
-  const blockedTasks = snapshot.progression.tasks
-    .filter((task) => task.status === "blocked")
-    .map((task) => ({
-      id: `blocker:task:${taskKey(task)}`,
-      phase: task.phase,
-      label: task.label,
-      detail: task.blocker,
-      comparison: task.blocker ?? task.label,
-    }));
-  const taskComparisons = new Set(blockedTasks.map((entry) => entry.comparison));
-  const seenDigest = new Set<string>();
-  const digestEntries: PresentedBlocker[] = [];
-  for (const blocker of snapshot.progression.digest.blockers) {
-    if (taskComparisons.has(blocker) || seenDigest.has(blocker)) continue;
-    seenDigest.add(blocker);
-    digestEntries.push({ id: `blocker:digest:${blocker}`, detail: blocker, comparison: blocker });
-  }
-  return [...blockedTasks, ...digestEntries];
-}
+function timestampLabel(entry: EagleViewMessage, newestAt: number): string {
+  const spansDays = !sameLocalDay(entry.firstAt, entry.latestAt);
+  const isOlderDay = !sameLocalDay(entry.latestAt, newestAt);
+  const includeDate = spansDays || isOlderDay;
+  const latest = formatLocalMoment(entry.latestAt, includeDate);
+  if (entry.count === 1) return latest;
 
-
-function historyLines(kind: "milestone" | "decision", entries: readonly string[]): LogicalLine[] {
-  const symbol = kind === "milestone" ? theme.fg("success", "✓") : "•";
-  return entries.map((entry) => ({
-    id: `${kind}:${entry}`,
-    text: `${symbol} ${entry}`,
-    continuationIndent: 2,
-  }));
+  const first = formatLocalMoment(entry.firstAt, includeDate);
+  const range = entry.firstAt === entry.latestAt ? latest : `${first}–${latest}`;
+  return `${range} · ${entry.count} updates`;
 }
 
 function buildLogicalLines(snapshot: EagleViewInspectionSnapshot, _width: number): LogicalLine[] {
-  const sections: LogicalLine[][] = [];
-  const heading = (title: string): LogicalLine => ({ id: `heading:${title}`, text: theme.bold(theme.fg("accent", title)) });
-  const { digest } = snapshot.progression;
-  const goal = snapshot.progression.ompGoal ?? digest.goal;
-
-  if (goal) sections.push([heading("GOAL"), { id: "goal", text: goal }]);
-  if (digest.currentFocus) {
-    sections.push([heading("NOW"), { id: "now", text: digest.currentFocus }]);
-  } else if (snapshot.briefingPending) {
-    sections.push([heading("NOW"), { id: "now:preparing", text: theme.fg("dim", "Preparing briefing…") }]);
+  const newestAt = snapshot.messages[0]?.latestAt;
+  if (newestAt === undefined) {
+    return [{ id: "empty", text: theme.fg("dim", "No updates yet.") }];
   }
 
-  const blockers = presentationBlockers(snapshot);
-  if (blockers.length) {
-    const lines: LogicalLine[] = [heading("BLOCKERS")];
-    for (const blocker of blockers) {
-      const label = blocker.label ? `${blocker.phase ? `${blocker.phase}: ` : ""}${blocker.label}` : blocker.detail ?? blocker.comparison;
-      lines.push({ id: blocker.id, text: `${theme.fg("warning", "!")} ${label}`, continuationIndent: 2 });
-      if (blocker.label && blocker.detail) lines.push({ id: `${blocker.id}:detail`, text: `  ${blocker.detail}`, continuationIndent: 2 });
+  return snapshot.messages.flatMap((entry, index) => {
+    const baseId = `message:${entry.id}`;
+    const lines: LogicalLine[] = [
+      {
+        id: `${baseId}:time`,
+        text: theme.fg("dim", timestampLabel(entry, newestAt)),
+      },
+      {
+        id: `${baseId}:text`,
+        text: entry.text,
+      },
+    ];
+    if (index < snapshot.messages.length - 1) {
+      lines.push({ id: `${baseId}:gap`, text: "" });
     }
-    sections.push(lines);
-  }
-
-  if (snapshot.milestoneHistory.length) {
-    sections.push([heading("MILESTONES"), ...historyLines("milestone", snapshot.milestoneHistory)]);
-  }
-  if (snapshot.decisionHistory.length) {
-    sections.push([heading("DECISIONS"), ...historyLines("decision", snapshot.decisionHistory)]);
-  }
-
-  return sections.flatMap((section, index) => (index === 0 ? section : [{ id: `gap:${index}`, text: "" }, ...section]));
+    return lines;
+  });
 }
 
 function wrapLogicalLines(lines: readonly LogicalLine[], width: number): WrappedLine[] {
@@ -163,28 +135,20 @@ function relativeAge(updatedAt: number | undefined): string | undefined {
 function titleForWidth(snapshot: EagleViewInspectionSnapshot, width: number): string {
   const budget = Math.max(0, width - 6);
   const identity = snapshot.icon ? `${snapshot.icon} Eagle View` : "Eagle View";
-  const tasks = snapshot.progression.tasks;
-  const completed = tasks.filter((task) => task.status === "completed").length;
-  const dropped = tasks.filter((task) => task.status === "abandoned").length;
-  const progress = tasks.length
-    ? `${completed}/${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}${dropped ? ` · ${dropped} dropped` : ""}`
-    : undefined;
-  const detailed = progress ? `${identity} · ${progress}` : identity;
-  const age = relativeAge(snapshot.updatedAt);
+  const age = relativeAge(snapshot.messages[0]?.latestAt);
   if (age) {
-    for (const candidate of [detailed, identity, "Eagle View"]) {
+    for (const candidate of [identity, "Eagle View"]) {
       const gap = budget - visibleWidth(candidate) - visibleWidth(age);
       if (gap >= 1) return `${candidate}${" ".repeat(gap)}${theme.fg("dim", age)}`;
     }
     if (visibleWidth(age) <= budget) return theme.fg("dim", age);
   }
-  if (visibleWidth(detailed) <= budget) return detailed;
   if (visibleWidth(identity) <= budget) return identity;
   if (snapshot.icon && visibleWidth("Eagle View") <= budget) return "Eagle View";
   return truncateToWidth("Eagle View", budget, Ellipsis.Omit);
 }
 
-export async function showProgressionOverlay(
+export async function showMessageHistoryOverlay(
   ctx: ExtensionContext,
   source: EagleViewInspectionSource,
   signal?: AbortSignal,

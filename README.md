@@ -24,13 +24,13 @@ Eagle View watches the session activity and todo progression, then translates th
 - Plain-language summary updates 
 - A quiet, two-line widget above the editor
 - Automatic summaries only when the work has changed
-- In-memory tracking for goals, tasks, decisions, milestones, and blockers
-- A detailed progression view when you want more context
+- An in-memory history of every accepted update
+- A scrollable message history when you want to catch up
 - Configurable timing, icon, tone, and model
 
-Open `/eagle-view inspect` for a detailed live session story covering the goal, current focus, blockers, milestones, and decisions:
+Open `/eagle-view inspect` for a timestamped history of accepted updates. The newest message stays at the top, new updates appear live, and consecutive exact repeats collapse into one entry:
 
-![Eagle View inspection panel showing the current goal, focus, blockers, milestones, and decisions](assets/eagle-view-inspect.webp)
+![Eagle View inspection panel showing timestamped plain-language updates](assets/eagle-view-inspect.webp)
 
 ## Install
 
@@ -65,9 +65,9 @@ omp plugin link "$PWD"
 | `/eagle-view` | Toggle Eagle View for the current session. |
 | `/eagle-view toggle` | Toggle Eagle View for the current session. |
 | `/eagle-view refresh` | Generate a new update now. |
-| `/eagle-view inspect` | Open the full progression view. |
+| `/eagle-view inspect` | Open the current session's update history. |
 
-Press `Esc` or `q` to close the progression view.
+Press `Esc` or `q` to close the message history.
 
 ## Settings
 
@@ -126,7 +126,7 @@ Eagle View sends a small, bounded snapshot of recent activity to the selected mo
 
 Todo task operations are the only structured-input exception. Eagle View reads their labels and states so it can report progress accurately.
 
-Progression state stays in memory and resets with the session. Narration requests use your active provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
+Message history and progression state stay in memory and reset with the session. Narration requests use your active provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
 
 ## Development
 
