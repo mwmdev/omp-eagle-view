@@ -2,7 +2,7 @@
 
 Understand what your coding agent is doing at a glance.
 
-Eagle View adds a small widget above the OMP editor. It watches the session and explains the current work in one short sentence.
+Eagle View adds a small widget above the [OMP](https://omp.sh/) editor. It watches the session and explains the current work in one short sentence.
 
 ```text
  🦅 Phones now download smaller photos while
