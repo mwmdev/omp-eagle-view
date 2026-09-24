@@ -28,6 +28,8 @@ Eagle View watches the session activity and todo progression, then translates th
 - A scrollable message history when you want to catch up
 - Configurable timing, icon, tone, and model
 
+![Eagle View's compact two-line update widget](assets/eagle-view-widget.webp)
+
 Open `/eagle-view inspect` for a timestamped history of accepted updates. The newest message stays at the top, new updates appear live, and consecutive exact repeats collapse into one entry:
 
 ![Eagle View inspection panel showing timestamped plain-language updates](assets/eagle-view-inspect.webp)
