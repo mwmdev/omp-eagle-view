@@ -4,10 +4,7 @@ Understand what your coding agent is doing at a glance.
 
 Eagle View adds a small widget above the [OMP](https://omp.sh/) editor. It watches the session and explains the current work in one short sentence.
 
-```text
- 🦅 Phones now download smaller photos while
-    larger screens keep their sharp images.
-```
+![Eagle View's compact two-line update widget](assets/eagle-view-widget.webp)
 
 ## When the work gets weird
 
@@ -27,8 +24,6 @@ Eagle View watches the session activity and todo progression, then translates th
 - An in-memory history of every accepted update
 - A scrollable message history when you want to catch up
 - Configurable timing, icon, tone, and model
-
-![Eagle View's compact two-line update widget](assets/eagle-view-widget.webp)
 
 Open `/eagle-view inspect` for a timestamped history of accepted updates. The newest message stays at the top, new updates appear live, and consecutive exact repeats collapse into one entry:
 
