@@ -19,9 +19,8 @@ Eagle View watches the session activity and todo progression, then translates th
 ## Features
 
 - Plain-language summary updates 
-- A quiet, two-line widget above the editor
+- A quiet two-line widget above the editor
 - Automatic summaries only when the work has changed
-- An in-memory history of every accepted update
 - A scrollable message history when you want to catch up
 - Configurable timing, icon, tone, and model
 
