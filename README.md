@@ -4,7 +4,7 @@ Understand what your coding agent is doing at a glance.
 
 Eagle View adds a small widget above the [OMP](https://omp.sh/) editor. It watches the session and explains the current work in one short sentence.
 
-![Eagle View's compact two-line update widget](assets/eagle-view-widget.webp)
+![Eagle View's compact two-line update widget cycling through recent messages](assets/eagle-view-widget.gif)
 
 ## When the work gets weird
 
