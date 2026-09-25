@@ -92,7 +92,7 @@ omp plugin config set omp-eagle-view initialEventCount 5 --local
 | `initialEventCount` | `3` | Whole number of events required before the first update. Accepts `1` to `100`. |
 | `icon` | `🦅` | Symbol shown before the update. Use an empty string to hide it. |
 | `prompt` | Wise, plain-spoken voice | Controls wording and tone. |
-| `model` | Cheapest available | Selects a model from the active provider. |
+| `model` | Current session model | Uses the active session model unless you select another model from the same provider. |
 
 Examples:
 

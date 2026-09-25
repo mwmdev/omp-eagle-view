@@ -128,16 +128,7 @@ export function selectEagleViewModel(ctx: ExtensionContext, configuredModel?: st
     return configured;
   }
 
-  return ctx.models
-    .list()
-    .filter((model) => model.provider === current.provider)
-    .sort(
-      (left, right) =>
-        left.cost.input +
-          left.cost.output -
-          (right.cost.input + right.cost.output) ||
-        left.id.localeCompare(right.id),
-    )[0];
+  return current;
 }
 
 export async function generateNarration(

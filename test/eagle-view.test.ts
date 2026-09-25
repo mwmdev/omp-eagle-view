@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import type { Model } from "@oh-my-pi/pi-ai";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 import { ActivityBuffer, assistantText, cleanActivityText } from "../src/activity";
 import { DEFAULT_CONFIG, parseEagleViewConfig, PLUGIN_NAME } from "../src/config";
-import { buildEagleViewRequest, normalizeNarration, parseEagleViewResponse } from "../src/narration";
+import {
+  buildEagleViewRequest,
+  normalizeNarration,
+  parseEagleViewResponse,
+  selectEagleViewModel,
+} from "../src/narration";
 import { formatProgression, ProgressionState } from "../src/progression";
 
 describe("Eagle View activity snapshots", () => {
@@ -99,6 +106,26 @@ describe("Eagle View configuration", () => {
     ).toEqual({});
     expect(warnings).toHaveLength(8);
     expect(parseEagleViewConfig({ initialEventCount: 3.5 }, "test")).toEqual({});
+  });
+});
+
+describe("Eagle View model selection", () => {
+  test("defaults to the current session model instead of a cheaper stale catalog entry", () => {
+    const current = { id: "claude-opus-current", provider: "anthropic" } as Model;
+    const retired = {
+      id: "claude-3-haiku-retired",
+      provider: "anthropic",
+      cost: { input: 0.25, output: 1.25 },
+    } as Model;
+    const ctx = {
+      models: {
+        current: () => current,
+        list: () => [retired, current],
+        resolve: () => undefined,
+      },
+    } as unknown as ExtensionContext;
+
+    expect(selectEagleViewModel(ctx)).toBe(current);
   });
 });
 
