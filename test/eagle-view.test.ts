@@ -127,6 +127,21 @@ describe("Eagle View model selection", () => {
 
     expect(selectEagleViewModel(ctx)).toBe(current);
   });
+
+  test("uses a configured model from a different provider than the session", () => {
+    const current = { id: "claude-opus-current", provider: "anthropic" } as Model;
+    const luna = { id: "gpt-5.6-luna", provider: "openai-codex" } as Model;
+    const ctx = {
+      models: {
+        current: () => current,
+        list: () => [current, luna],
+        resolve: (spec: string) => (spec === "openai-codex/gpt-5.6-luna" ? luna : undefined),
+      },
+    } as unknown as ExtensionContext;
+
+    expect(selectEagleViewModel(ctx, "openai-codex/gpt-5.6-luna")).toBe(luna);
+    expect(selectEagleViewModel(ctx, "missing/model")).toBeUndefined();
+  });
 });
 
 describe("Eagle View output", () => {

@@ -61,7 +61,7 @@
       },
       "model": {
         "type": "string",
-        "description": "Optional narration model from the active provider"
+        "description": "Optional narration model from omp models; defaults to the session model"
       }
     }
   },

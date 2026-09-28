@@ -43,7 +43,7 @@ omp plugin list
 omp plugin doctor
 ```
 
-Eagle View requires OMP 18.2.5 or newer and an authenticated model from the active provider.
+Eagle View requires OMP 18.2.5 or newer and an authenticated model.
 
 ### Local development
 
@@ -92,7 +92,7 @@ omp plugin config set omp-eagle-view initialEventCount 5 --local
 | `initialEventCount` | `3` | Whole number of events required before the first update. Accepts `1` to `100`. |
 | `icon` | `🦅` | Symbol shown before the update. Use an empty string to hide it. |
 | `prompt` | Wise, plain-spoken voice | Controls wording and tone. |
-| `model` | Current session model | Uses the active session model unless you select another model from the same provider. |
+| `model` | Current session model | Any model listed by `omp models`, from any authenticated provider. |
 
 Examples:
 
@@ -122,7 +122,7 @@ Eagle View sends a small, bounded snapshot of recent activity to the selected mo
 
 Todo task operations are the only structured-input exception. Eagle View reads their labels and states so it can report progress accurately.
 
-Message history and progression state stay in memory and reset with the session. Narration requests use your active provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
+Message history and progression state stay in memory and reset with the session. Narration requests use the selected model's provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
 
 ## Development
 

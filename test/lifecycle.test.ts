@@ -269,7 +269,7 @@ test("does not retry a failed update until new activity arrives", async () => {
 
 test("reports manual refresh failures in the UI", async () => {
   const narrate = (async () => {
-    throw new Error("No authenticated model is available from the active provider");
+    throw new Error("No session model is available");
   }) as typeof generateNarration;
   const handlers = createExtensionHarness([], narrate);
   const harness = createContext();
@@ -279,7 +279,7 @@ test("reports manual refresh failures in the UI", async () => {
   await handlers.get("command:eagle-view")?.("refresh", harness.context);
 
   expect(harness.notifications).toContainEqual({
-    message: "Eagle View refresh failed: No authenticated model is available from the active provider",
+    message: "Eagle View refresh failed: No session model is available",
     level: "error",
   });
 });

@@ -119,16 +119,8 @@ ${encodedActivity}
 }
 
 export function selectEagleViewModel(ctx: ExtensionContext, configuredModel?: string): Model | undefined {
-  const current = ctx.models.current();
-  if (!current) return undefined;
-
-  if (configuredModel) {
-    const configured = ctx.models.resolve(configuredModel);
-    if (!configured || configured.provider !== current.provider) return undefined;
-    return configured;
-  }
-
-  return current;
+  if (configuredModel) return ctx.models.resolve(configuredModel);
+  return ctx.models.current();
 }
 
 export async function generateNarration(
@@ -143,8 +135,8 @@ export async function generateNarration(
   if (!model) {
     throw new Error(
       configuredModel
-        ? `Eagle View model '${configuredModel}' is unavailable from the active provider`
-        : "No authenticated model is available from the active provider",
+        ? `Eagle View model '${configuredModel}' is not available`
+        : "No session model is available",
     );
   }
 
