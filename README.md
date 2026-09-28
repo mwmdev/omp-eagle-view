@@ -14,7 +14,7 @@ OMP already shows the agent's todo plan, but when the plan looks like this it's 
 
 ![A deliberately confusing OMP todo plan with opaque task names](assets/mock-todo-plan.webp)
 
-Eagle View watches the session activity and todo progression, then translates the important parts into short, everyday English. It keeps the useful context while leaving the abstract terminology behind.
+Eagle View watches the session activity, then translates the important parts into short, everyday English. It keeps the useful context while leaving the abstract terminology behind.
 
 ## Features
 
@@ -23,6 +23,7 @@ Eagle View watches the session activity and todo progression, then translates th
 - Automatic summaries only when the work has changed
 - A scrollable message history when you want to catch up
 - Configurable timing, icon, tone, and model
+- A visible warning when updates stop working, instead of silent failure
 
 Open `/eagle-view inspect` for a timestamped history of accepted updates. The newest message stays at the top, new updates appear live, and consecutive exact repeats collapse into one entry:
 
@@ -118,11 +119,11 @@ Settings are loaded when an OMP session starts or switches. Project settings ove
 
 ## Privacy and cost
 
-Eagle View sends a small, bounded snapshot of recent activity to the selected model. It does not read or send raw tool results, generic structured tool arguments, partial tool results, or stored transcripts.
+Eagle View sends a small, bounded snapshot of recent activity to the selected model: your messages, assistant replies, and tool names with their short stated intent. It does not read or send other tool arguments, tool results, or stored transcripts.
 
-Todo task operations are the only structured-input exception. Eagle View reads their labels and states so it can report progress accurately.
+Message history and a short running summary of earlier progress stay in memory and reset with the session. Narration requests use the selected model's provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
 
-Message history and progression state stay in memory and reset with the session. Narration requests use the selected model's provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
+If the model is missing or rejects the credentials, Eagle View shows a paused warning and stops automatic requests until `/eagle-view refresh` or a new session. Temporary errors show a warning after three failures in a row.
 
 ## Development
 

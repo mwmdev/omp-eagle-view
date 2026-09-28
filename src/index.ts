@@ -1,18 +1,29 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
-import { ActivityBuffer, assistantText, describeToolEnd, describeToolStart } from "./activity";
+import { ActivityBuffer, assistantText, cleanActivityText, describeToolEnd, describeToolStart } from "./activity";
 import { DEFAULT_CONFIG, loadEagleViewConfig, type EagleViewConfig } from "./config";
-import { generateNarration } from "./narration";
+import { generateNarration, isConfigurationError } from "./narration";
 import {
   showMessageHistoryOverlay,
   type EagleViewInspectionSource,
   type EagleViewMessage,
 } from "./inspect";
-import { ProgressionState } from "./progression";
 import { clearEagleViewWidget, showEagleViewWidget } from "./widget";
 
 const INITIAL_UPDATE_DELAY_MS = 1_000;
 const IDLE_WIDGET_TIMEOUT_MS = 60_000;
+const TRANSIENT_FAILURE_THRESHOLD = 3;
+const MAX_FAILURE_LINE_CHARACTERS = 120;
+const FAILURE_ICON = "⚠";
+
+export function formatFailureLine(message: string, paused: boolean): string {
+  const prefix = paused ? "Eagle View paused: " : "Eagle View can't reach the model: ";
+  const suffix = paused ? " — /eagle-view refresh to retry" : "";
+  // The widget prefixes the icon and a space; only the reason is truncated so the retry hint always survives.
+  const budget = MAX_FAILURE_LINE_CHARACTERS - FAILURE_ICON.length - 1 - prefix.length - suffix.length;
+  const reason = cleanActivityText(message.split("\n", 1)[0] ?? "", budget);
+  return `${prefix}${reason}${suffix}`;
+}
 
 type ManagedTimer = Timer;
 
@@ -20,7 +31,7 @@ interface RuntimeState {
   ctx?: ExtensionContext;
   config: EagleViewConfig;
   activity: ActivityBuffer;
-  progression: ProgressionState;
+  summary?: string;
   enabled: boolean;
   interval?: ManagedTimer;
   initialUpdate?: ManagedTimer;
@@ -29,6 +40,9 @@ interface RuntimeState {
   abortController?: AbortController;
   attemptedVersion: number;
   narration?: string;
+  failureLine?: string;
+  consecutiveFailures: number;
+  paused: boolean;
   idle: boolean;
   refreshQueued: boolean;
   refreshFailureNotificationQueued: boolean;
@@ -47,7 +61,8 @@ export default function eagleViewExtension(
   const state: RuntimeState = {
     config: { ...DEFAULT_CONFIG },
     activity: new ActivityBuffer(),
-    progression: new ProgressionState(),
+    consecutiveFailures: 0,
+    paused: false,
     enabled: DEFAULT_CONFIG.enabled,
     attemptedVersion: 0,
     messageHistory: [],
@@ -71,8 +86,16 @@ export default function eagleViewExtension(
     state.idleClear = undefined;
   };
 
+  const resetFailures = (): void => {
+    state.failureLine = undefined;
+    state.consecutiveFailures = 0;
+    state.paused = false;
+  };
+
   const updateNarration = async (force: boolean, reportFailure = false): Promise<void> => {
     if (!state.ctx || !state.enabled || state.disposed || state.activity.empty) return;
+    // Only an explicit refresh may retry after a configuration error.
+    if (state.paused && !reportFailure) return;
     if (
       !force &&
       (state.idle ||
@@ -90,11 +113,13 @@ export default function eagleViewExtension(
       return state.generation;
     }
 
+    // An explicit retry ends the pause; a new configuration error re-establishes it.
+    if (reportFailure) state.paused = false;
     const ctx = state.ctx;
     const generation = state.sessionGeneration;
     const version = state.activity.version;
     const snapshot = state.activity.snapshot();
-    const progression = state.progression.snapshot();
+    const summary = state.summary;
     const controller = new AbortController();
     state.abortController = controller;
     state.attemptedVersion = version;
@@ -104,7 +129,7 @@ export default function eagleViewExtension(
         const result = await narrate(
           ctx,
           snapshot,
-          progression,
+          summary,
           state.config.prompt,
           state.config.model,
           controller.signal,
@@ -132,7 +157,8 @@ export default function eagleViewExtension(
             count: 1,
           });
         }
-        if (result.digest) state.progression.applyDigest(result.digest);
+        if (result.summary) state.summary = result.summary;
+        resetFailures();
         state.narration = result.narration;
         if (!state.inspection) showEagleViewWidget(ctx, result.narration, state.config.icon);
         armIdleWidgetClear();
@@ -141,6 +167,15 @@ export default function eagleViewExtension(
         if (!controller.signal.aborted) {
           const message = error instanceof Error ? error.message : String(error);
           warn("eagle-view: generation failed", { error: message });
+          if (state.enabled && !state.disposed && state.sessionGeneration === generation) {
+            const configuration = isConfigurationError(error);
+            state.consecutiveFailures += 1;
+            if (configuration) state.paused = true;
+            if (configuration || state.consecutiveFailures >= TRANSIENT_FAILURE_THRESHOLD) {
+              state.failureLine = formatFailureLine(message, configuration);
+              if (!state.inspection) showEagleViewWidget(ctx, state.failureLine, FAILURE_ICON);
+            }
+          }
           if (
             reportFailure &&
             state.enabled &&
@@ -201,7 +236,8 @@ export default function eagleViewExtension(
       state.refreshQueued = false;
       state.refreshFailureNotificationQueued = false;
       state.abortController?.abort();
-      clearEagleViewWidget(ctx);
+      // A failure line stays until success, refresh, or toggle so a broken setup is never hidden.
+      if (!state.failureLine) clearEagleViewWidget(ctx);
       state.narration = undefined;
     }, IDLE_WIDGET_TIMEOUT_MS);
   };
@@ -238,7 +274,8 @@ export default function eagleViewExtension(
     state.sessionId = sessionId;
     state.disposed = false;
     state.activity.clear();
-    state.progression.reset();
+    state.summary = undefined;
+    resetFailures();
     state.attemptedVersion = 0;
     state.narration = undefined;
     state.messageHistory = [];
@@ -271,34 +308,12 @@ export default function eagleViewExtension(
     if (text) noteActivity("assistant", text);
   });
 
-  pi.on("goal_updated", (event) => {
-    state.progression.setOmpGoal(event.goal);
-    state.inspection?.onChange?.();
-    noteActivity("system", event.goal ? "The session goal was updated" : "The session goal was cleared");
-  });
-
-  pi.on("todo_reminder", (event) => {
-    if (state.progression.reconcileTodoReminder(event.todos)) {
-      state.inspection?.onChange?.();
-      noteActivity("system", "The task plan was reconciled");
-    }
-  });
-
-  pi.on("tool_call", (event) => {
-    // Todo task data is the sole structured-input exception; generic tool arguments and all results remain excluded.
-    if (event.toolName === "todo") state.progression.captureTodoOperation(event.toolCallId, event.input);
-  });
-
   pi.on("tool_execution_start", (event) => {
     const activity = describeToolStart(event.toolName, event.intent);
     noteActivity(activity.kind, activity.text);
   });
 
   pi.on("tool_execution_end", (event) => {
-    if (event.toolName === "todo" && state.progression.finishTodoOperation(event.toolCallId, !event.isError)) {
-      state.inspection?.onChange?.();
-      noteActivity("system", "The task plan was updated");
-    }
     const activity = describeToolEnd(event.toolName, event.isError);
     noteActivity(activity.kind, activity.text);
   });
@@ -368,6 +383,7 @@ export default function eagleViewExtension(
           clearEagleViewWidget(ctx);
           state.narration = undefined;
           state.attemptedVersion = 0;
+          resetFailures();
           state.refreshFailureNotificationQueued = false;
           state.idle = true;
           ctx.ui.notify("Eagle View disabled", "info");
@@ -430,7 +446,9 @@ export default function eagleViewExtension(
             state.sessionId === sessionId
           ) {
             state.inspection = undefined;
-            if (state.enabled && !state.disposed && !state.idle && state.narration) {
+            if (state.enabled && !state.disposed && state.failureLine) {
+              showEagleViewWidget(openingContext, state.failureLine, FAILURE_ICON);
+            } else if (state.enabled && !state.disposed && !state.idle && state.narration) {
               showEagleViewWidget(openingContext, state.narration, state.config.icon);
             }
           }

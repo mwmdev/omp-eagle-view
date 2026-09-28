@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { type Component, initTheme, theme } from "@oh-my-pi/pi-tui";
 
 import eagleViewExtension from "../src/index";
-import { generateNarration, type NarrationResult } from "../src/narration";
+import { EagleViewConfigurationError, generateNarration, type NarrationResult } from "../src/narration";
 import { renderWidgetLines, showEagleViewWidget } from "../src/widget";
 
 type EventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
@@ -534,4 +534,124 @@ test("unsupported inspection warns without hiding the widget or narrating", asyn
   expect(widgetCalls).toHaveLength(callsBefore);
   expect(narrationCalls).toBe(0);
   expect(harness.notifications.at(-1)?.message).toBe("Eagle View inspection requires the interactive TUI");
+});
+
+async function startWithActivity(narrate: typeof generateNarration) {
+  const widgetCalls: Array<{ content: unknown; placement?: string }> = [];
+  const handlers = createExtensionHarness([], narrate);
+  const harness = createContext(widgetCalls);
+  await handlers.get("session_start")?.({ type: "session_start" }, harness.context);
+  let inputs = 0;
+  const act = () =>
+    handlers.get("input")?.({ type: "input", source: "user", text: `Activity ${++inputs}` }, harness.context);
+  const turn = async () => {
+    act();
+    await handlers.get("agent_end")?.({ type: "agent_end", messages: [] }, harness.context);
+  };
+  const shown = () => renderCapturedWidget(widgetCalls.at(-1) ?? { content: undefined }, 200);
+  return { handlers, harness, widgetCalls, act, turn, shown };
+}
+
+test("pauses automatic updates after a configuration error until refresh", async () => {
+  let calls = 0;
+  const narrate = (async () => {
+    calls += 1;
+    throw new EagleViewConfigurationError("Eagle View model 'nope/missing' is not available");
+  }) as typeof generateNarration;
+  const { handlers, harness, act, turn, shown } = await startWithActivity(narrate);
+
+  await turn();
+  expect(calls).toBe(1);
+  expect(shown()).toContain("Eagle View paused: Eagle View model 'nope/missing' is not available");
+
+  await turn();
+  act();
+  await harness.intervals[0]?.();
+  await harness.timeouts.filter((timer) => timer.ms === 1_000).at(-1)?.callback();
+  expect(calls).toBe(1);
+
+  await handlers.get("command:eagle-view")?.("refresh", harness.context);
+  expect(calls).toBe(2);
+});
+
+test("shows transient failures only after three in a row and recovers on success", async () => {
+  const outcomes = ["ok:Good progress on the main feature.", "fail", "fail", "fail", "ok:Recovered and moving forward again.", "fail"];
+  const narrate = (async () => {
+    const outcome = outcomes.shift() ?? "fail";
+    if (outcome === "fail") throw new Error("503 service overloaded");
+    return { narration: outcome.slice(3) };
+  }) as typeof generateNarration;
+  const { turn, shown } = await startWithActivity(narrate);
+
+  await turn();
+  await turn();
+  await turn();
+  expect(shown()).toContain("Good progress on the main feature.");
+  await turn();
+  expect(shown()).toContain("Eagle View can't reach the model: 503 service overloaded");
+  await turn();
+  expect(shown()).toContain("Recovered and moving forward again.");
+  await turn();
+  expect(shown()).toContain("Recovered and moving forward again.");
+});
+
+test("keeps the failure line through inactivity and bounds it to one short line", async () => {
+  const narrate = (async () => {
+    throw new Error(`404 {"type":"error","error":{"type":"not_found_error","message":"model: ${"x".repeat(400)}"}}\nstack`);
+  }) as typeof generateNarration;
+  const { harness, turn, shown, widgetCalls } = await startWithActivity(narrate);
+
+  await turn();
+  const lines = shown().split("\n").filter((line) => line.trim());
+  expect(lines).toHaveLength(1);
+  expect(Bun.stringWidth(lines[0]?.trim() ?? "")).toBeLessThanOrEqual(121);
+  expect(lines[0]).toContain("Eagle View paused: 404");
+  expect(lines[0]).toContain("— /eagle-view refresh to retry");
+
+  harness.timeouts.filter((timer) => timer.ms === 60_000).at(-1)?.callback();
+  expect(widgetCalls.at(-1)?.content).toBeDefined();
+  expect(shown()).toContain("Eagle View paused");
+});
+
+test("feeds the previous summary back and never forwards todo input", async () => {
+  const requests: Array<{ activity: string; summary: string | undefined }> = [];
+  const narrate = (async (...args: Parameters<typeof generateNarration>) => {
+    requests.push({ activity: args[1], summary: args[2] });
+    return { narration: "Steady progress on the work.", summary: `Summary ${requests.length}` };
+  }) as typeof generateNarration;
+  const { handlers, harness, turn } = await startWithActivity(narrate);
+
+  handlers.get("tool_call")?.(
+    { type: "tool_call", toolName: "todo", toolCallId: "t1", input: { op: "init", list: [{ phase: "P", items: ["Secret task label"] }] } },
+    harness.context,
+  );
+  handlers.get("tool_execution_start")?.({ type: "tool_execution_start", toolName: "todo", toolCallId: "t1" }, harness.context);
+  handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolName: "todo", toolCallId: "t1", isError: false }, harness.context);
+  await turn();
+  await turn();
+
+  expect(requests[0]?.summary).toBeUndefined();
+  expect(requests[1]?.summary).toBe("Summary 1");
+  expect(JSON.stringify(requests)).not.toContain("Secret task label");
+});
+
+test("a manual refresh ends the pause even when the retry fails transiently", async () => {
+  const outcomes: Array<"config" | "transient" | "ok"> = ["config", "transient", "ok"];
+  let calls = 0;
+  const narrate = (async () => {
+    calls += 1;
+    const outcome = outcomes.shift() ?? "ok";
+    if (outcome === "config") throw new EagleViewConfigurationError("No credential is available for x/y");
+    if (outcome === "transient") throw new Error("503 service overloaded");
+    return { narration: "Work resumed after the credential was fixed." };
+  }) as typeof generateNarration;
+  const { handlers, harness, turn, shown } = await startWithActivity(narrate);
+
+  await turn();
+  await handlers.get("command:eagle-view")?.("refresh", harness.context);
+  expect(calls).toBe(2);
+
+  await turn();
+  expect(calls).toBe(3);
+  expect(shown()).toContain("Work resumed after the credential was fixed.");
 });
