@@ -18,8 +18,8 @@ Eagle View watches the session activity, then translates the important parts int
 
 ## Features
 
-- Plain-language summary updates 
-- A quiet two-line widget above the editor
+- Plain-language summary updates
+- A quiet two-line widget above the editor that hides after a minute of inactivity
 - Automatic summaries only when the work has changed
 - A scrollable message history when you want to catch up
 - Configurable timing, icon, tone, and model
@@ -59,8 +59,7 @@ omp plugin link "$PWD"
 
 | Command | What it does |
 | --- | --- |
-| `/eagle-view` | Toggle Eagle View for the current session. |
-| `/eagle-view toggle` | Toggle Eagle View for the current session. |
+| `/eagle-view` or `/eagle-view toggle` | Toggle Eagle View for the current session. |
 | `/eagle-view refresh` | Generate a new update now. |
 | `/eagle-view inspect` | Open the current session's update history. |
 
@@ -95,6 +94,8 @@ omp plugin config set omp-eagle-view initialEventCount 5 --local
 | `prompt` | Wise, plain-spoken voice | Controls wording and tone. |
 | `model` | Current session model | Any model listed by `omp models`, from any authenticated provider. |
 
+By default Eagle View uses your session model. For lower cost, set a small, fast model.
+
 Examples:
 
 ```bash
@@ -121,7 +122,7 @@ Settings are loaded when an OMP session starts or switches. Project settings ove
 
 Eagle View sends a small, bounded snapshot of recent activity to the selected model: your messages, assistant replies, and tool names with their short stated intent. It does not read or send other tool arguments, tool results, or stored transcripts.
 
-Message history and a short running summary of earlier progress stay in memory and reset with the session. Narration requests use the selected model's provider credentials and may incur provider usage or cost. Eagle View avoids repeat requests when the work has not changed.
+Message history and a short running summary of earlier progress stay in memory and reset with the session. Narration requests use the selected model's provider credentials and may incur provider usage or cost. If that model comes from a different provider than your session model, your session activity is sent to that provider too. Eagle View avoids repeat requests when the work has not changed.
 
 If the model is missing or rejects the credentials, Eagle View shows a paused warning and stops automatic requests until `/eagle-view refresh` or a new session. Temporary errors show a warning after three failures in a row.
 
